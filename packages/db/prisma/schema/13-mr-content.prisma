@@ -1,0 +1,198 @@
+model MrUser {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+
+  code       String @unique
+  territory  String?
+  city       String?
+  state      String?
+  managerId  String? @db.Uuid
+  monthlyTargetDoctors Int @default(0)
+  status     OrgStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  onboardings DoctorOnboarding[]
+  visits      MrVisit[]
+
+  @@map("mr_users")
+}
+
+enum OnboardingStage {
+  LEAD
+  CONTACTED
+  INTERESTED
+  DEMO
+  DOCUMENTS_PENDING
+  VERIFICATION
+  APPROVED
+  ACTIVATED
+  REJECTED
+  CHANGES_REQUESTED
+  INACTIVE
+}
+
+/** MR-owned doctor acquisition pipeline. Holds no patient data by design. */
+model DoctorOnboarding {
+  id       String  @id @default(uuid()) @db.Uuid
+  mrUserId String  @db.Uuid
+  doctorId String? @db.Uuid
+
+  leadName      String
+  leadMobile    String
+  leadEmail     String?
+  clinicName    String?
+  city          String?
+  specialtyHint String?
+
+  stage      OnboardingStage @default(LEAD)
+  notes      String?
+  rejectionReason String?
+  nextActionAt DateTime?
+  activatedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mrUser MrUser  @relation(fields: [mrUserId], references: [id])
+  doctor Doctor? @relation(fields: [doctorId], references: [id])
+
+  visits MrVisit[]
+
+  @@index([mrUserId, stage])
+  @@index([leadMobile])
+  @@map("doctor_onboarding")
+}
+
+enum MrVisitType {
+  INTRO
+  DEMO
+  FOLLOW_UP
+  DOCUMENT_PICKUP
+  SUPPORT
+}
+
+model MrVisit {
+  id           String  @id @default(uuid()) @db.Uuid
+  mrUserId     String  @db.Uuid
+  onboardingId String? @db.Uuid
+
+  type      MrVisitType
+  visitedAt DateTime
+  latitude  Decimal? @db.Decimal(10, 7)
+  longitude Decimal? @db.Decimal(10, 7)
+  outcome   String?
+  notes     String?
+
+  createdAt DateTime @default(now())
+
+  mrUser     MrUser            @relation(fields: [mrUserId], references: [id])
+  onboarding DoctorOnboarding? @relation(fields: [onboardingId], references: [id])
+
+  @@index([mrUserId, visitedAt])
+  @@map("mr_visits")
+}
+
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+  UNPUBLISHED
+  ARCHIVED
+}
+
+model Blog {
+  id       String @id @default(uuid()) @db.Uuid
+  doctorId String @db.Uuid
+
+  slug        String        @unique
+  title       String
+  excerpt     String?
+  body        String
+  coverKey    String?
+  tags        String[]      @default([])
+  status      ContentStatus @default(DRAFT)
+  publishedAt DateTime?
+  viewCount   Int           @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  doctor Doctor @relation(fields: [doctorId], references: [id])
+
+  @@index([status, publishedAt])
+  @@index([doctorId])
+  @@map("blogs")
+}
+
+enum ReviewStatus {
+  PENDING
+  PUBLISHED
+  HIDDEN
+  REMOVED
+}
+
+model Review {
+  id        String @id @default(uuid()) @db.Uuid
+  doctorId  String @db.Uuid
+  patientId String @db.Uuid
+  /** Proof the reviewer actually completed a consultation. */
+  consultationId String @unique @db.Uuid
+
+  rating  Int
+  comment String?
+  status  ReviewStatus @default(PENDING)
+
+  moderatedById String?   @db.Uuid
+  moderatedAt   DateTime?
+  moderationNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  doctor  Doctor  @relation(fields: [doctorId], references: [id])
+  patient Patient @relation(fields: [patientId], references: [id])
+
+  @@index([doctorId, status])
+  @@map("reviews")
+}
+
+model AiConversation {
+  id      String  @id @default(uuid()) @db.Uuid
+  userId  String  @db.Uuid
+  context String
+  /** Optional link to the clinical record the assistant is drafting for. */
+  consultationId String? @db.Uuid
+  title   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages AiMessage[]
+
+  @@index([userId, createdAt])
+  @@map("ai_conversations")
+}
+
+model AiMessage {
+  id               String @id @default(uuid()) @db.Uuid
+  aiConversationId String @db.Uuid
+
+  role    String
+  content String
+  model   String?
+  tokensIn Int?
+  tokensOut Int?
+  /** Clinical output stays a draft until a doctor accepts it. */
+  acceptedById String?   @db.Uuid
+  acceptedAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  conversation AiConversation @relation(fields: [aiConversationId], references: [id], onDelete: Cascade)
+
+  @@index([aiConversationId, createdAt])
+  @@map("ai_messages")
+}

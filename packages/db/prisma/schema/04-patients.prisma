@@ -1,0 +1,100 @@
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  UNDISCLOSED
+}
+
+enum BloodGroup {
+  A_POS
+  A_NEG
+  B_POS
+  B_NEG
+  AB_POS
+  AB_NEG
+  O_POS
+  O_NEG
+  UNKNOWN
+}
+
+model Patient {
+  id             String  @id @default(uuid()) @db.Uuid
+  userId         String? @unique @db.Uuid
+  organizationId String? @db.Uuid
+
+  /** Immutable human-readable id, e.g. CLX-PT-000001 */
+  code       String     @unique
+  fullName   String
+  mobile     String
+  altMobile  String?
+  email      String?
+  dateOfBirth DateTime? @db.Date
+  /** Kept for patients who only know their age. */
+  approxAgeYears Int?
+  gender     Gender     @default(UNDISCLOSED)
+  bloodGroup BloodGroup @default(UNKNOWN)
+  photoKey   String?
+
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  district     String?
+  state        String?
+  pincode      String?
+
+  allergies         String[] @default([])
+  chronicConditions String[] @default([])
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  emergencyContactRelation String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  user User? @relation(fields: [userId], references: [id])
+
+  doctors        DoctorPatient[]
+  appointments   Appointment[]
+  queueEntries   QueueEntry[]
+  consultations  Consultation[]
+  prescriptions  Prescription[]
+  vitals         Vital[]
+  labOrders      LabOrder[]
+  documents      MedicalDocument[]
+  dietPlans      DietPlan[]
+  invoices       Invoice[]
+  payments       Payment[]
+  pharmacyOrders PharmacyOrder[]
+  reviews        Review[]
+  callLogs       CallLog[]
+  followUps      FollowUp[]
+  conversations  Conversation[]
+
+  @@unique([organizationId, mobile])
+  @@index([mobile])
+  @@index([fullName])
+  @@map("patients")
+}
+
+/** Establishes the treating relationship that authorises chat and record access. */
+model DoctorPatient {
+  id        String @id @default(uuid()) @db.Uuid
+  doctorId  String @db.Uuid
+  patientId String @db.Uuid
+
+  firstVisitAt DateTime?
+  lastVisitAt  DateTime?
+  visitCount   Int       @default(0)
+  isActive     Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  doctor  Doctor  @relation(fields: [doctorId], references: [id])
+  patient Patient @relation(fields: [patientId], references: [id])
+
+  @@unique([doctorId, patientId])
+  @@index([patientId])
+  @@map("doctor_patients")
+}

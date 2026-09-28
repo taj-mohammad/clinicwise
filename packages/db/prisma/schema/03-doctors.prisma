@@ -1,0 +1,154 @@
+enum DoctorStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+model Specialty {
+  id          String  @id @default(uuid()) @db.Uuid
+  key         String  @unique
+  name        String
+  description String?
+
+  doctorSpecialties DoctorSpecialty[]
+
+  @@map("specialties")
+}
+
+/** One master profile per doctor, regardless of how many clinics they practise at. */
+model Doctor {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+
+  code           String  @unique
+  registrationNo String?
+  registrationCouncil String?
+  qualification  String?
+  experienceYears Int?
+  bio            String?
+  languages      String[] @default([])
+  signatureKey   String?
+
+  status   DoctorStatus @default(PENDING_VERIFICATION)
+  isOnline Boolean      @default(false)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  user              User                     @relation(fields: [userId], references: [id])
+  specialties       DoctorSpecialty[]
+  practiceLocations DoctorPracticeLocation[]
+  patients          DoctorPatient[]
+  appointments      Appointment[]
+  consultations     Consultation[]
+  prescriptions     Prescription[]
+  labOrders         LabOrder[]
+  dietPlans         DietPlan[]
+  blogs             Blog[]
+  reviews           Review[]
+  onboarding        DoctorOnboarding[]
+  conversations     Conversation[]
+
+  @@index([status])
+  @@map("doctors")
+}
+
+model DoctorSpecialty {
+  doctorId    String  @db.Uuid
+  specialtyId String  @db.Uuid
+  isPrimary   Boolean @default(false)
+
+  doctor    Doctor    @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  specialty Specialty @relation(fields: [specialtyId], references: [id])
+
+  @@id([doctorId, specialtyId])
+  @@map("doctor_specialties")
+}
+
+/** A doctor's practice at one clinic location. Everything operational hangs off this. */
+model DoctorPracticeLocation {
+  id         String @id @default(uuid()) @db.Uuid
+  doctorId   String @db.Uuid
+  locationId String @db.Uuid
+
+  consultationFee   Decimal @db.Decimal(10, 2)
+  followUpFee       Decimal? @db.Decimal(10, 2)
+  /** Free follow-up window after a paid consultation. */
+  followUpValidDays Int     @default(7)
+  slotDurationMin   Int     @default(15)
+  opdCapacityPerDay Int?
+  /** Minutes blocked after the last slot to travel to another location. */
+  travelBufferMin   Int     @default(30)
+
+  startDate DateTime  @db.Date
+  endDate   DateTime? @db.Date
+  status    OrgStatus @default(ACTIVE)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  doctor    Doctor   @relation(fields: [doctorId], references: [id])
+  location  Location @relation(fields: [locationId], references: [id])
+
+  schedules    DoctorLocationSchedule[]
+  timeOff      DoctorTimeOff[]
+  appointments Appointment[]
+  queues       Queue[]
+
+  @@unique([doctorId, locationId])
+  @@index([locationId, status])
+  @@map("doctor_practice_locations")
+}
+
+model DoctorLocationSchedule {
+  id                 String @id @default(uuid()) @db.Uuid
+  practiceLocationId String @db.Uuid
+
+  /** 0 = Sunday … 6 = Saturday */
+  dayOfWeek   Int
+  startTime   String
+  endTime     String
+  breakStart  String?
+  breakEnd    String?
+  slotDurationMin Int?
+  maxAppointments Int?
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  practiceLocation DoctorPracticeLocation @relation(fields: [practiceLocationId], references: [id], onDelete: Cascade)
+
+  @@unique([practiceLocationId, dayOfWeek, startTime])
+  @@index([practiceLocationId, dayOfWeek])
+  @@map("doctor_location_schedules")
+}
+
+enum TimeOffType {
+  LEAVE
+  HOLIDAY
+  EMERGENCY
+  CONFERENCE
+  SPECIAL_OPD
+}
+
+model DoctorTimeOff {
+  id                 String      @id @default(uuid()) @db.Uuid
+  practiceLocationId String      @db.Uuid
+  type               TimeOffType
+  startAt            DateTime
+  endAt              DateTime
+  reason             String?
+  /** For SPECIAL_OPD this marks extra availability rather than a block. */
+  isAvailability     Boolean     @default(false)
+
+  createdAt DateTime @default(now())
+
+  practiceLocation DoctorPracticeLocation @relation(fields: [practiceLocationId], references: [id], onDelete: Cascade)
+
+  @@index([practiceLocationId, startAt, endAt])
+  @@map("doctor_time_off")
+}

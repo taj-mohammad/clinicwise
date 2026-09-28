@@ -1,0 +1,167 @@
+enum AppointmentType {
+  ONLINE
+  OFFLINE
+  WALK_IN
+  FOLLOW_UP
+  TELECONSULT
+}
+
+enum AppointmentStatus {
+  PENDING
+  PAYMENT_PENDING
+  CONFIRMED
+  CHECKED_IN
+  WAITING
+  IN_CONSULTATION
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+  RESCHEDULED
+  REFUNDED
+}
+
+model Appointment {
+  id                 String @id @default(uuid()) @db.Uuid
+  clinicId           String @db.Uuid
+  locationId         String @db.Uuid
+  practiceLocationId String @db.Uuid
+  doctorId           String @db.Uuid
+  patientId          String @db.Uuid
+
+  code      String @unique
+  type      AppointmentType
+  status    AppointmentStatus @default(PENDING)
+
+  scheduledStart DateTime
+  scheduledEnd   DateTime
+  checkedInAt    DateTime?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  cancelledAt    DateTime?
+  cancelReason   String?
+
+  tokenNumber Int?
+  reason      String?
+  notes       String?
+
+  fee        Decimal @db.Decimal(10, 2) @default(0)
+  isPaid     Boolean @default(false)
+  /** Set when this booking supersedes an earlier one. */
+  rescheduledFromId String? @db.Uuid
+
+  createdById String? @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  doctor           Doctor                 @relation(fields: [doctorId], references: [id])
+  patient          Patient                @relation(fields: [patientId], references: [id])
+  practiceLocation DoctorPracticeLocation @relation(fields: [practiceLocationId], references: [id])
+
+  statusHistory AppointmentStatusHistory[]
+  queueEntry    QueueEntry?
+  consultation  Consultation?
+  invoices      Invoice[]
+  payments      Payment[]
+
+  /** Guards double booking at the database level, not just in application code. */
+  @@unique([practiceLocationId, scheduledStart])
+  @@index([doctorId, scheduledStart])
+  @@index([patientId, scheduledStart])
+  @@index([clinicId, status, scheduledStart])
+  @@index([locationId, scheduledStart])
+  @@map("appointments")
+}
+
+model AppointmentStatusHistory {
+  id            String            @id @default(uuid()) @db.Uuid
+  appointmentId String            @db.Uuid
+  fromStatus    AppointmentStatus?
+  toStatus      AppointmentStatus
+  changedById   String?           @db.Uuid
+  reason        String?
+  createdAt     DateTime          @default(now())
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([appointmentId, createdAt])
+  @@map("appointment_status_history")
+}
+
+enum QueueStatus {
+  OPEN
+  PAUSED
+  CLOSED
+}
+
+/** One queue per doctor-location per day. */
+model Queue {
+  id                 String   @id @default(uuid()) @db.Uuid
+  practiceLocationId String   @db.Uuid
+  date               DateTime @db.Date
+  status             QueueStatus @default(OPEN)
+
+  currentToken   Int?
+  lastIssuedToken Int    @default(0)
+  avgConsultMin  Int     @default(15)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  practiceLocation DoctorPracticeLocation @relation(fields: [practiceLocationId], references: [id])
+  entries          QueueEntry[]
+  events           QueueEvent[]
+
+  @@unique([practiceLocationId, date])
+  @@map("queues")
+}
+
+enum QueueEntryStatus {
+  WAITING
+  CALLED
+  IN_CONSULTATION
+  ON_HOLD
+  SKIPPED
+  COMPLETED
+  NO_SHOW
+  LEFT
+}
+
+model QueueEntry {
+  id            String  @id @default(uuid()) @db.Uuid
+  queueId       String  @db.Uuid
+  patientId     String  @db.Uuid
+  appointmentId String? @unique @db.Uuid
+
+  tokenNumber Int
+  position    Int
+  status      QueueEntryStatus @default(WAITING)
+  priority    Int              @default(0)
+
+  joinedAt    DateTime  @default(now())
+  calledAt    DateTime?
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  queue       Queue        @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  patient     Patient      @relation(fields: [patientId], references: [id])
+  appointment Appointment? @relation(fields: [appointmentId], references: [id])
+
+  @@unique([queueId, tokenNumber])
+  @@index([queueId, status, position])
+  @@map("queue_entries")
+}
+
+model QueueEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  queueId   String   @db.Uuid
+  entryId   String?  @db.Uuid
+  action    String
+  actorId   String?  @db.Uuid
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  queue Queue @relation(fields: [queueId], references: [id], onDelete: Cascade)
+
+  @@index([queueId, createdAt])
+  @@map("queue_events")
+}

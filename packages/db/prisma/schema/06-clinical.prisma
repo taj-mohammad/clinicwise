@@ -1,0 +1,391 @@
+enum ConsultationStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+  AMENDED
+  CANCELLED
+}
+
+model Consultation {
+  id            String  @id @default(uuid()) @db.Uuid
+  code          String  @unique
+  clinicId      String  @db.Uuid
+  /** Retained verbatim so history never moves when a doctor changes practice. */
+  locationId    String  @db.Uuid
+  doctorId      String  @db.Uuid
+  patientId     String  @db.Uuid
+  appointmentId String? @unique @db.Uuid
+
+  status ConsultationStatus @default(DRAFT)
+
+  chiefComplaint String?
+  symptoms       String[] @default([])
+  examination    String?
+  clinicalNotes  String?
+  advice         String?
+  followUpDate   DateTime? @db.Date
+  followUpNote   String?
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  /** Incremented on every post-completion amendment. */
+  version     Int       @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  doctor      Doctor       @relation(fields: [doctorId], references: [id])
+  patient     Patient      @relation(fields: [patientId], references: [id])
+  appointment Appointment? @relation(fields: [appointmentId], references: [id])
+
+  vitals        Vital[]
+  diagnoses     Diagnosis[]
+  prescriptions Prescription[]
+  labOrders     LabOrder[]
+  documents     MedicalDocument[]
+  dietPlans     DietPlan[]
+  adviceItems   ConsultationAdvice[]
+  versions      MedicalRecordVersion[]
+
+  @@index([patientId, startedAt])
+  @@index([doctorId, startedAt])
+  @@index([clinicId, status, startedAt])
+  @@map("consultations")
+}
+
+/** Immutable snapshot of a consultation at each completion or amendment. */
+model MedicalRecordVersion {
+  id             String   @id @default(uuid()) @db.Uuid
+  consultationId String   @db.Uuid
+  version        Int
+  snapshot       Json
+  reason         String?
+  createdById    String?  @db.Uuid
+  createdAt      DateTime @default(now())
+
+  consultation Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+
+  @@unique([consultationId, version])
+  @@map("medical_record_versions")
+}
+
+model Vital {
+  id             String  @id @default(uuid()) @db.Uuid
+  patientId      String  @db.Uuid
+  consultationId String? @db.Uuid
+
+  heightCm       Decimal? @db.Decimal(5, 2)
+  weightKg       Decimal? @db.Decimal(5, 2)
+  bmi            Decimal? @db.Decimal(5, 2)
+  temperatureC   Decimal? @db.Decimal(4, 1)
+  pulseBpm       Int?
+  respiratoryRate Int?
+  systolicMmHg   Int?
+  diastolicMmHg  Int?
+  spo2Percent    Int?
+  bloodGlucoseMgDl Int?
+  notes          String?
+
+  recordedById String?  @db.Uuid
+  recordedAt   DateTime @default(now())
+
+  patient      Patient       @relation(fields: [patientId], references: [id])
+  consultation Consultation? @relation(fields: [consultationId], references: [id])
+
+  @@index([patientId, recordedAt])
+  @@map("vitals")
+}
+
+model Diagnosis {
+  id             String  @id @default(uuid()) @db.Uuid
+  consultationId String  @db.Uuid
+  code           String?
+  codeSystem     String? @default("ICD-10")
+  label          String
+  isPrimary      Boolean @default(false)
+  notes          String?
+
+  createdAt DateTime @default(now())
+
+  consultation Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+
+  @@index([consultationId])
+  @@map("diagnoses")
+}
+
+model Medicine {
+  id           String  @id @default(uuid()) @db.Uuid
+  name         String
+  genericName  String?
+  strength     String?
+  form         String?
+  manufacturer String?
+  isActive     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  prescriptionItems PrescriptionItem[]
+
+  @@unique([name, strength, form])
+  @@index([genericName])
+  @@map("medicines")
+}
+
+enum PrescriptionSource {
+  DIGITAL
+  PHYSICAL_LETTERHEAD
+  PATIENT_UPLOADED
+  HYBRID
+}
+
+enum PrescriptionStatus {
+  DRAFT
+  ISSUED
+  CANCELLED
+  SUPERSEDED
+}
+
+model Prescription {
+  id             String  @id @default(uuid()) @db.Uuid
+  code           String  @unique
+  clinicId       String  @db.Uuid
+  locationId     String  @db.Uuid
+  doctorId       String? @db.Uuid
+  patientId      String  @db.Uuid
+  consultationId String? @db.Uuid
+
+  source PrescriptionSource @default(DIGITAL)
+  status PrescriptionStatus @default(DRAFT)
+
+  diagnosisText String?
+  advice        String?
+  followUpDate  DateTime? @db.Date
+  notes         String?
+
+  /** Snapshot of doctor and clinic identity at issue time; never re-derived. */
+  issuerSnapshot Json?
+  pdfKey         String?
+  /** Random token backing the public QR verification endpoint. */
+  verificationCode String? @unique
+  issuedAt       DateTime?
+
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  doctor       Doctor?       @relation(fields: [doctorId], references: [id])
+  patient      Patient       @relation(fields: [patientId], references: [id])
+  consultation Consultation? @relation(fields: [consultationId], references: [id])
+
+  items          PrescriptionItem[]
+  documents      MedicalDocument[]
+  pharmacyOrders PharmacyOrder[]
+
+  @@index([patientId, createdAt])
+  @@index([doctorId, createdAt])
+  @@map("prescriptions")
+}
+
+enum MedicationRoute {
+  ORAL
+  TOPICAL
+  INTRAVENOUS
+  INTRAMUSCULAR
+  SUBCUTANEOUS
+  INHALATION
+  NASAL
+  OPHTHALMIC
+  OTIC
+  RECTAL
+  SUBLINGUAL
+}
+
+enum FoodTiming {
+  BEFORE_FOOD
+  AFTER_FOOD
+  WITH_FOOD
+  EMPTY_STOMACH
+  ANY
+}
+
+model PrescriptionItem {
+  id             String  @id @default(uuid()) @db.Uuid
+  prescriptionId String  @db.Uuid
+  medicineId     String? @db.Uuid
+
+  /** Free text is kept alongside the catalogue link so history stays readable. */
+  medicineName String
+  genericName  String?
+  strength     String?
+  dose         String
+  /** Structured frequency, e.g. "1-0-1". */
+  frequency    String
+  durationDays Int?
+  durationText String?
+  route        MedicationRoute @default(ORAL)
+  foodTiming   FoodTiming      @default(ANY)
+  instructions String?
+  quantity     Int?
+  sortOrder    Int             @default(0)
+
+  prescription Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+  medicine     Medicine?    @relation(fields: [medicineId], references: [id])
+
+  @@index([prescriptionId, sortOrder])
+  @@map("prescription_items")
+}
+
+model QuickAdviceTemplate {
+  id       String  @id @default(uuid()) @db.Uuid
+  clinicId String? @db.Uuid
+  category String
+  title    String
+  bodyEn   String
+  bodyHi   String?
+  isSystem Boolean @default(false)
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  adviceItems ConsultationAdvice[]
+
+  @@map("quick_advice_templates")
+}
+
+model ConsultationAdvice {
+  id             String  @id @default(uuid()) @db.Uuid
+  consultationId String  @db.Uuid
+  templateId     String? @db.Uuid
+  text           String
+  sentAt         DateTime?
+
+  createdAt DateTime @default(now())
+
+  consultation Consultation         @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  template     QuickAdviceTemplate? @relation(fields: [templateId], references: [id])
+
+  @@index([consultationId])
+  @@map("consultation_advice")
+}
+
+enum DietPlanStatus {
+  DRAFT
+  IN_REVIEW
+  CHANGES_REQUESTED
+  APPROVED
+  ACTIVE
+  EXPIRED
+  ARCHIVED
+}
+
+model DietPlan {
+  id             String  @id @default(uuid()) @db.Uuid
+  patientId      String  @db.Uuid
+  doctorId       String  @db.Uuid
+  consultationId String? @db.Uuid
+
+  title     String
+  status    DietPlanStatus @default(DRAFT)
+  version   Int            @default(1)
+  startDate DateTime       @db.Date
+  endDate   DateTime?      @db.Date
+
+  foodsToEat    String[] @default([])
+  foodsToAvoid  String[] @default([])
+  foodsToLimit  String[] @default([])
+  hydrationNote String?
+  lifestyleNote String?
+  instructions  String?
+  followUpNote  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  patient      Patient       @relation(fields: [patientId], references: [id])
+  doctor       Doctor        @relation(fields: [doctorId], references: [id])
+  consultation Consultation? @relation(fields: [consultationId], references: [id])
+
+  days      DietPlanDay[]
+  versions  DietPlanVersion[]
+  approvals DietPlanApproval[]
+
+  @@index([patientId, status])
+  @@map("diet_plans")
+}
+
+model DietPlanDay {
+  id         String  @id @default(uuid()) @db.Uuid
+  dietPlanId String  @db.Uuid
+  /** Null means the day template repeats for the whole plan. */
+  dayOfWeek  Int?
+  label      String?
+
+  dietPlan DietPlan       @relation(fields: [dietPlanId], references: [id], onDelete: Cascade)
+  meals    DietPlanMeal[]
+
+  @@map("diet_plan_days")
+}
+
+enum MealSlot {
+  BREAKFAST
+  MID_MORNING
+  LUNCH
+  EVENING
+  DINNER
+  BEDTIME
+}
+
+model DietPlanMeal {
+  id            String   @id @default(uuid()) @db.Uuid
+  dietPlanDayId String   @db.Uuid
+  slot          MealSlot
+  timeHint      String?
+  note          String?
+
+  day   DietPlanDay    @relation(fields: [dietPlanDayId], references: [id], onDelete: Cascade)
+  items DietPlanItem[]
+
+  @@unique([dietPlanDayId, slot])
+  @@map("diet_plan_meals")
+}
+
+model DietPlanItem {
+  id             String   @id @default(uuid()) @db.Uuid
+  dietPlanMealId String   @db.Uuid
+  food           String
+  quantity       String?
+  alternatives   String[] @default([])
+  sortOrder      Int      @default(0)
+
+  meal DietPlanMeal @relation(fields: [dietPlanMealId], references: [id], onDelete: Cascade)
+
+  @@map("diet_plan_items")
+}
+
+model DietPlanVersion {
+  id         String   @id @default(uuid()) @db.Uuid
+  dietPlanId String   @db.Uuid
+  version    Int
+  snapshot   Json
+  createdAt  DateTime @default(now())
+
+  dietPlan DietPlan @relation(fields: [dietPlanId], references: [id], onDelete: Cascade)
+
+  @@unique([dietPlanId, version])
+  @@map("diet_plan_versions")
+}
+
+model DietPlanApproval {
+  id          String         @id @default(uuid()) @db.Uuid
+  dietPlanId  String         @db.Uuid
+  fromStatus  DietPlanStatus?
+  toStatus    DietPlanStatus
+  actorId     String?        @db.Uuid
+  comment     String?
+  createdAt   DateTime       @default(now())
+
+  dietPlan DietPlan @relation(fields: [dietPlanId], references: [id], onDelete: Cascade)
+
+  @@index([dietPlanId, createdAt])
+  @@map("diet_plan_approvals")
+}

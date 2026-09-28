@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: cliniqx-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cliniqx
+      POSTGRES_PASSWORD: cliniqx_dev_password
+      POSTGRES_DB: cliniqx
+    ports: ["5433:5432"]
+    volumes: ["cliniqx_pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cliniqx -d cliniqx"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: cliniqx-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6380:6379"]
+    volumes: ["cliniqx_redisdata:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  cliniqx_pgdata:
+  cliniqx_redisdata:

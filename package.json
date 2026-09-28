@@ -1,0 +1,28 @@
+{
+  "name": "cliniqx",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@12.6.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:e2e": "turbo run test:e2e",
+    "db:generate": "pnpm --filter @cliniqx/db generate",
+    "db:push": "pnpm --filter @cliniqx/db push",
+    "db:migrate": "pnpm --filter @cliniqx/db migrate",
+    "db:seed": "pnpm --filter @cliniqx/db seed",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.5",
+    "typescript": "^5.7.3",
+    "tsx": "^4.19.2"
+  }
+}

@@ -1,0 +1,288 @@
+enum UserStatus {
+  INVITED
+  ACTIVE
+  INACTIVE
+  LOCKED
+  SUSPENDED
+}
+
+enum PrincipalType {
+  PLATFORM
+  ORG
+  CLINIC
+  PATIENT
+  MR
+  PHARMACY
+  LAB
+}
+
+model User {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String? @db.Uuid
+
+  email        String?
+  mobile       String?
+  passwordHash String?
+
+  fullName   String
+  avatarKey  String?
+  locale     String  @default("en-IN")
+
+  principalType PrincipalType @default(CLINIC)
+  status        UserStatus    @default(ACTIVE)
+
+  emailVerifiedAt  DateTime?
+  mobileVerifiedAt DateTime?
+  mfaEnabled       Boolean   @default(false)
+  mfaSecret        String?
+  lastLoginAt      DateTime?
+  failedAttempts   Int       @default(0)
+  lockedUntil      DateTime?
+  /** Invalidates every access token issued before this moment. */
+  tokensValidFrom  DateTime  @default(now())
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  userRoles     UserRole[]
+  sessions      UserSession[]
+  deviceTokens  DeviceToken[]
+  otpChallenges OtpChallenge[]
+  auditLogs     AuditLog[]
+  notifications Notification[]
+  notificationPreferences NotificationPreference[]
+
+  doctor  Doctor?
+  staff   Staff?
+  patient Patient?
+  mrUser  MrUser?
+
+  /** Partner desk accounts are bound to exactly one pharmacy or laboratory. */
+  pharmacyId String?   @db.Uuid
+  pharmacy   Pharmacy? @relation(fields: [pharmacyId], references: [id])
+  labId      String?   @db.Uuid
+  lab        Lab?      @relation(fields: [labId], references: [id])
+
+  @@unique([email])
+  @@unique([mobile])
+  @@index([organizationId, status])
+  @@index([principalType])
+  @@map("users")
+}
+
+model Role {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String? @db.Uuid
+  key            String
+  name           String
+  description    String?
+  /** System roles are seeded and cannot be deleted by tenants. */
+  isSystem       Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization    Organization?    @relation(fields: [organizationId], references: [id])
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@unique([organizationId, key])
+  @@map("roles")
+}
+
+model Permission {
+  id          String  @id @default(uuid()) @db.Uuid
+  key         String  @unique
+  resource    String
+  action      String
+  description String?
+
+  rolePermissions RolePermission[]
+
+  @@index([resource])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @db.Uuid
+  permissionId String @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+/** A user's role, optionally scoped to one clinic (multi-clinic staff get several rows). */
+model UserRole {
+  id       String  @id @default(uuid()) @db.Uuid
+  userId   String  @db.Uuid
+  roleId   String  @db.Uuid
+  clinicId String? @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId, clinicId])
+  @@index([userId])
+  @@map("user_roles")
+}
+
+model UserSession {
+  id           String  @id @default(uuid()) @db.Uuid
+  userId       String  @db.Uuid
+  /** SHA-256 of the refresh token; the raw token is never stored. */
+  refreshHash  String  @unique
+  userAgent    String?
+  ipAddress    String?
+  deviceLabel  String?
+  trustedDevice Boolean @default(false)
+
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  lastUsedAt DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@map("user_sessions")
+}
+
+enum OtpPurpose {
+  LOGIN
+  SIGNUP
+  PASSWORD_RESET
+  MOBILE_VERIFY
+  SENSITIVE_ACTION
+}
+
+model OtpChallenge {
+  id        String     @id @default(uuid()) @db.Uuid
+  userId    String?    @db.Uuid
+  mobile    String?
+  email     String?
+  purpose   OtpPurpose
+  codeHash  String
+  attempts  Int        @default(0)
+  maxAttempts Int      @default(5)
+  expiresAt DateTime
+  consumedAt DateTime?
+  ipAddress String?
+
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([mobile, purpose, expiresAt])
+  @@index([email, purpose, expiresAt])
+  @@map("otp_challenges")
+}
+
+enum DevicePlatform {
+  WEB
+  ANDROID
+  IOS
+}
+
+model DeviceToken {
+  id        String         @id @default(uuid()) @db.Uuid
+  userId    String         @db.Uuid
+  token     String         @unique
+  platform  DevicePlatform
+  lastSeenAt DateTime      @default(now())
+  createdAt DateTime       @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("device_tokens")
+}
+
+model AuditLog {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String? @db.Uuid
+  clinicId       String? @db.Uuid
+  userId         String? @db.Uuid
+
+  action       String
+  resourceType String
+  resourceId   String?
+  /** Present for any access to protected health information. */
+  patientId    String? @db.Uuid
+
+  ipAddress String?
+  userAgent String?
+  metadata  Json?
+
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([resourceType, resourceId])
+  @@index([patientId, createdAt])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}
+
+enum SecurityEventType {
+  LOGIN_SUCCESS
+  LOGIN_FAILED
+  ACCOUNT_LOCKED
+  OTP_FAILED
+  OTP_RATE_LIMITED
+  PERMISSION_DENIED
+  TENANT_VIOLATION
+  SUSPICIOUS_LOGIN
+  PASSWORD_CHANGED
+  SESSION_REVOKED
+  WEBHOOK_REJECTED
+  FILE_UPLOAD_REJECTED
+}
+
+model SecurityEvent {
+  id        String            @id @default(uuid()) @db.Uuid
+  type      SecurityEventType
+  userId    String?           @db.Uuid
+  email     String?
+  mobile    String?
+  ipAddress String?
+  userAgent String?
+  severity  String            @default("info")
+  metadata  Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([type, createdAt])
+  @@index([userId, createdAt])
+  @@map("security_events")
+}
+
+enum ConsentType {
+  TERMS
+  PRIVACY
+  DATA_SHARING
+  TELECONSULT
+  MARKETING_COMMS
+}
+
+model Consent {
+  id        String      @id @default(uuid()) @db.Uuid
+  userId    String      @db.Uuid
+  type      ConsentType
+  version   String
+  granted   Boolean
+  ipAddress String?
+  grantedAt DateTime    @default(now())
+  revokedAt DateTime?
+
+  @@index([userId, type])
+  @@map("consents")
+}

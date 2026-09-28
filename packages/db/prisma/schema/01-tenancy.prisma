@@ -1,0 +1,168 @@
+enum OrgStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+model Organization {
+  id           String    @id @default(uuid()) @db.Uuid
+  code         String    @unique
+  name         String
+  legalName    String?
+  gstin        String?
+  email        String?
+  phone        String?
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  district     String?
+  state        String?
+  pincode      String?
+  logoKey      String?
+  status       OrgStatus @default(ACTIVE)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  clinics       Clinic[]
+  users         User[]
+  roles         Role[]
+  settings      Setting[]
+  featureFlags  FeatureFlag[]
+
+  @@index([status])
+  @@map("organizations")
+}
+
+model Clinic {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @db.Uuid
+  code           String    @unique
+  name           String
+  registrationNo String?
+  email          String?
+  phone          String?
+  logoKey        String?
+  timezone       String    @default("Asia/Kolkata")
+  currency       String    @default("INR")
+  status         OrgStatus @default(ACTIVE)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  locations    Location[]
+
+  @@index([organizationId, status])
+  @@map("clinics")
+}
+
+model Location {
+  id        String  @id @default(uuid()) @db.Uuid
+  clinicId  String  @db.Uuid
+  code      String  @unique
+  name      String
+  addressLine1 String?
+  addressLine2 String?
+  city      String?
+  district  String?
+  state     String?
+  pincode   String?
+  latitude  Decimal? @db.Decimal(10, 7)
+  longitude Decimal? @db.Decimal(10, 7)
+  phone     String?
+  /** Radius in metres accepted for geo-validated QR attendance. */
+  geofenceRadiusM Int   @default(150)
+  attendanceQrSecret String?
+  status    OrgStatus @default(ACTIVE)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  clinic            Clinic                   @relation(fields: [clinicId], references: [id])
+  practiceLocations DoctorPracticeLocation[]
+  holidays          LocationHoliday[]
+  specialSchedules  LocationSpecialSchedule[]
+
+  @@index([clinicId, status])
+  @@index([city])
+  @@map("locations")
+}
+
+model LocationHoliday {
+  id         String   @id @default(uuid()) @db.Uuid
+  locationId String   @db.Uuid
+  date       DateTime @db.Date
+  name       String
+  createdAt  DateTime @default(now())
+
+  location Location @relation(fields: [locationId], references: [id])
+
+  @@unique([locationId, date])
+  @@map("location_holidays")
+}
+
+model LocationSpecialSchedule {
+  id         String   @id @default(uuid()) @db.Uuid
+  locationId String   @db.Uuid
+  date       DateTime @db.Date
+  opensAt    String
+  closesAt   String
+  note       String?
+  createdAt  DateTime @default(now())
+
+  location Location @relation(fields: [locationId], references: [id])
+
+  @@unique([locationId, date])
+  @@map("location_special_schedules")
+}
+
+model Setting {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String? @db.Uuid
+  clinicId       String? @db.Uuid
+  key            String
+  value          Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, clinicId, key])
+  @@map("settings")
+}
+
+model FeatureFlag {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String? @db.Uuid
+  key            String
+  enabled        Boolean @default(false)
+  description    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, key])
+  @@map("feature_flags")
+}
+
+/**
+ * Atomic counters behind human-readable business ids (CLX-PT-000001).
+ * A plain unique key is used deliberately: a composite key containing NULLs
+ * would make `ON CONFLICT` miss, because Postgres treats NULLs as distinct.
+ */
+model Counter {
+  key   String @id
+  value Int    @default(0)
+
+  updatedAt DateTime @updatedAt
+
+  @@map("counters")
+}

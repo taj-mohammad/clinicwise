@@ -1,0 +1,75 @@
+enum DocumentKind {
+  PRESCRIPTION_SCAN
+  LAB_REPORT
+  RADIOLOGY
+  DISCHARGE_SUMMARY
+  INSURANCE
+  ID_PROOF
+  CONSENT_FORM
+  STAFF_DOCUMENT
+  INVOICE
+  OTHER
+}
+
+enum DocumentOrigin {
+  DOCTOR
+  STAFF
+  PATIENT
+  LAB
+  PHARMACY
+  SYSTEM
+}
+
+/** Every medical file. Stored private; served only through short-lived signed URLs. */
+model MedicalDocument {
+  id             String  @id @default(uuid()) @db.Uuid
+  clinicId       String? @db.Uuid
+  locationId     String? @db.Uuid
+  patientId      String  @db.Uuid
+  consultationId String? @db.Uuid
+  prescriptionId String? @db.Uuid
+  labOrderId     String? @db.Uuid
+
+  kind   DocumentKind
+  origin DocumentOrigin
+  title  String
+
+  /** Opaque generated storage key; the original filename is never used as a path. */
+  storageKey       String @unique
+  originalFilename String
+  mimeType         String
+  sizeBytes        Int
+  checksumSha256   String?
+  pageCount        Int?
+
+  uploadedById String?  @db.Uuid
+  uploadedAt   DateTime @default(now())
+  deletedAt    DateTime?
+
+  patient      Patient       @relation(fields: [patientId], references: [id])
+  consultation Consultation? @relation(fields: [consultationId], references: [id])
+  prescription Prescription? @relation(fields: [prescriptionId], references: [id])
+  labOrder     LabOrder?     @relation(fields: [labOrderId], references: [id])
+
+  accessLogs DocumentAccessLog[]
+
+  @@index([patientId, uploadedAt])
+  @@index([consultationId])
+  @@index([kind])
+  @@map("medical_documents")
+}
+
+model DocumentAccessLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  documentId String   @db.Uuid
+  userId     String?  @db.Uuid
+  action     String
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  document MedicalDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId, createdAt])
+  @@map("document_access_logs")
+}

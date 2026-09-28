@@ -1,0 +1,172 @@
+model Pharmacy {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String?   @db.Uuid
+  code           String    @unique
+  name           String
+  licenseNo      String?
+  email          String?
+  phone          String?
+  status         OrgStatus @default(PENDING)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  locations PharmacyLocation[]
+  orders    PharmacyOrder[]
+  deskUsers User[]
+
+  @@map("pharmacies")
+}
+
+model PharmacyLocation {
+  id         String @id @default(uuid()) @db.Uuid
+  pharmacyId String @db.Uuid
+
+  name         String
+  addressLine1 String?
+  city         String?
+  district     String?
+  state        String?
+  pincode      String?
+  latitude     Decimal? @db.Decimal(10, 7)
+  longitude    Decimal? @db.Decimal(10, 7)
+  phone        String?
+
+  delivers        Boolean  @default(false)
+  servicePincodes String[] @default([])
+  status          OrgStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+
+  pharmacy  Pharmacy            @relation(fields: [pharmacyId], references: [id])
+  inventory PharmacyInventory[]
+  orders    PharmacyOrder[]
+
+  @@index([pharmacyId])
+  @@index([city])
+  @@map("pharmacy_locations")
+}
+
+model PharmacyInventory {
+  id                 String @id @default(uuid()) @db.Uuid
+  pharmacyLocationId String @db.Uuid
+
+  medicineName String
+  genericName  String?
+  brand        String?
+  strength     String?
+  packSize     String?
+  mrp          Decimal  @db.Decimal(10, 2)
+  sellingPrice Decimal  @db.Decimal(10, 2)
+  stockQty     Int      @default(0)
+  batchNo      String?
+  expiryDate   DateTime? @db.Date
+  isAvailable  Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pharmacyLocation PharmacyLocation @relation(fields: [pharmacyLocationId], references: [id], onDelete: Cascade)
+
+  @@index([pharmacyLocationId, medicineName])
+  @@index([genericName])
+  @@map("pharmacy_inventory")
+}
+
+enum PharmacyOrderStatus {
+  SENT
+  ACCEPTED
+  QUOTED
+  PATIENT_CONFIRMED
+  PAYMENT_PENDING
+  PREPARING
+  READY
+  OUT_FOR_DELIVERY
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+enum FulfilmentMode {
+  PICKUP
+  DELIVERY
+}
+
+model PharmacyOrder {
+  id                 String  @id @default(uuid()) @db.Uuid
+  code               String  @unique
+  patientId          String  @db.Uuid
+  prescriptionId     String  @db.Uuid
+  pharmacyId         String  @db.Uuid
+  pharmacyLocationId String  @db.Uuid
+
+  status         PharmacyOrderStatus @default(SENT)
+  fulfilmentMode FulfilmentMode      @default(PICKUP)
+  totalAmount    Decimal?            @db.Decimal(10, 2)
+  rejectionReason String?
+  notes          String?
+
+  sentAt      DateTime  @default(now())
+  acceptedAt  DateTime?
+  quotedAt    DateTime?
+  confirmedAt DateTime?
+  readyAt     DateTime?
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  patient          Patient          @relation(fields: [patientId], references: [id])
+  prescription     Prescription     @relation(fields: [prescriptionId], references: [id])
+  pharmacy         Pharmacy         @relation(fields: [pharmacyId], references: [id])
+  pharmacyLocation PharmacyLocation @relation(fields: [pharmacyLocationId], references: [id])
+
+  items      PharmacyOrderItem[]
+  deliveries PharmacyDelivery[]
+  invoices   Invoice[]
+
+  @@index([patientId, sentAt])
+  @@index([pharmacyId, status])
+  @@map("pharmacy_orders")
+}
+
+model PharmacyOrderItem {
+  id              String @id @default(uuid()) @db.Uuid
+  pharmacyOrderId String @db.Uuid
+
+  medicineName   String
+  requestedQty   Int
+  availableQty   Int?
+  unitPrice      Decimal? @db.Decimal(10, 2)
+  substituteFor  String?
+  /** Pharmacies may flag unavailability but never edit the doctor's prescription. */
+  isAvailable    Boolean  @default(true)
+  note           String?
+
+  order PharmacyOrder @relation(fields: [pharmacyOrderId], references: [id], onDelete: Cascade)
+
+  @@index([pharmacyOrderId])
+  @@map("pharmacy_order_items")
+}
+
+model PharmacyDelivery {
+  id              String    @id @default(uuid()) @db.Uuid
+  pharmacyOrderId String    @db.Uuid
+  addressLine     String
+  city            String?
+  pincode         String?
+  contactPhone    String?
+  agentName       String?
+  agentPhone      String?
+  dispatchedAt    DateTime?
+  deliveredAt     DateTime?
+  status          String    @default("PENDING")
+
+  createdAt DateTime @default(now())
+
+  order PharmacyOrder @relation(fields: [pharmacyOrderId], references: [id], onDelete: Cascade)
+
+  @@index([pharmacyOrderId])
+  @@map("pharmacy_deliveries")
+}

@@ -1,0 +1,208 @@
+model Lab {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String?   @db.Uuid
+  code           String    @unique
+  name           String
+  registrationNo String?
+  email          String?
+  phone          String?
+  status         OrgStatus @default(PENDING)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  locations LabLocation[]
+  tests     LabTest[]
+  orders    LabOrder[]
+  deskUsers User[]
+
+  @@map("labs")
+}
+
+model LabLocation {
+  id    String @id @default(uuid()) @db.Uuid
+  labId String @db.Uuid
+
+  name         String
+  addressLine1 String?
+  city         String?
+  district     String?
+  state        String?
+  pincode      String?
+  latitude     Decimal? @db.Decimal(10, 7)
+  longitude    Decimal? @db.Decimal(10, 7)
+  phone        String?
+
+  homeCollection Boolean  @default(false)
+  servicePincodes String[] @default([])
+  status         OrgStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+
+  lab    Lab        @relation(fields: [labId], references: [id])
+  orders LabOrder[]
+  prices LabTestPrice[]
+
+  @@index([labId])
+  @@index([city])
+  @@map("lab_locations")
+}
+
+model LabTest {
+  id    String @id @default(uuid()) @db.Uuid
+  labId String @db.Uuid
+
+  code            String
+  name            String
+  category        String?
+  sampleType      String?
+  preparationNote String?
+  turnaroundHours Int?
+  isActive        Boolean @default(true)
+
+  lab    Lab            @relation(fields: [labId], references: [id])
+  prices LabTestPrice[]
+  items  LabOrderItem[]
+
+  @@unique([labId, code])
+  @@map("lab_tests")
+}
+
+model LabTestPrice {
+  id            String  @id @default(uuid()) @db.Uuid
+  labTestId     String  @db.Uuid
+  labLocationId String? @db.Uuid
+  price         Decimal @db.Decimal(10, 2)
+  homeCollectionFee Decimal? @db.Decimal(10, 2)
+  effectiveFrom DateTime @default(now())
+
+  labTest     LabTest      @relation(fields: [labTestId], references: [id], onDelete: Cascade)
+  labLocation LabLocation? @relation(fields: [labLocationId], references: [id])
+
+  @@unique([labTestId, labLocationId, effectiveFrom])
+  @@map("lab_test_prices")
+}
+
+enum LabOrderStatus {
+  ORDERED
+  ACCEPTED
+  SAMPLE_COLLECTED
+  PROCESSING
+  REPORT_READY
+  DELIVERED
+  REVISED
+  CANCELLED
+}
+
+model LabOrder {
+  id             String  @id @default(uuid()) @db.Uuid
+  code           String  @unique
+  clinicId       String  @db.Uuid
+  locationId     String  @db.Uuid
+  doctorId       String  @db.Uuid
+  patientId      String  @db.Uuid
+  consultationId String? @db.Uuid
+  labId          String? @db.Uuid
+  labLocationId  String? @db.Uuid
+
+  status       LabOrderStatus @default(ORDERED)
+  instructions String?
+  homeCollection Boolean      @default(false)
+  totalAmount  Decimal?       @db.Decimal(10, 2)
+
+  orderedAt    DateTime  @default(now())
+  acceptedAt   DateTime?
+  collectedAt  DateTime?
+  reportReadyAt DateTime?
+  deliveredAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  doctor       Doctor       @relation(fields: [doctorId], references: [id])
+  patient      Patient      @relation(fields: [patientId], references: [id])
+  consultation Consultation? @relation(fields: [consultationId], references: [id])
+  lab          Lab?         @relation(fields: [labId], references: [id])
+  labLocation  LabLocation? @relation(fields: [labLocationId], references: [id])
+
+  items       LabOrderItem[]
+  results     LabResult[]
+  reports     LabReport[]
+  collections LabSampleCollection[]
+  documents   MedicalDocument[]
+  invoices    Invoice[]
+
+  @@index([patientId, orderedAt])
+  @@index([labId, status])
+  @@index([clinicId, status])
+  @@map("lab_orders")
+}
+
+model LabOrderItem {
+  id         String  @id @default(uuid()) @db.Uuid
+  labOrderId String  @db.Uuid
+  labTestId  String? @db.Uuid
+  testName   String
+  price      Decimal? @db.Decimal(10, 2)
+
+  labOrder LabOrder @relation(fields: [labOrderId], references: [id], onDelete: Cascade)
+  labTest  LabTest? @relation(fields: [labTestId], references: [id])
+
+  @@index([labOrderId])
+  @@map("lab_order_items")
+}
+
+model LabSampleCollection {
+  id          String   @id @default(uuid()) @db.Uuid
+  labOrderId  String   @db.Uuid
+  collectedBy String?
+  collectedAt DateTime @default(now())
+  mode        String   @default("LAB_VISIT")
+  addressLine String?
+  notes       String?
+
+  labOrder LabOrder @relation(fields: [labOrderId], references: [id], onDelete: Cascade)
+
+  @@index([labOrderId])
+  @@map("lab_sample_collections")
+}
+
+model LabResult {
+  id         String  @id @default(uuid()) @db.Uuid
+  labOrderId String  @db.Uuid
+  testName   String
+  parameter  String
+  value      String
+  unit       String?
+  referenceRange String?
+  /** NORMAL | LOW | HIGH | CRITICAL */
+  flag       String  @default("NORMAL")
+
+  createdAt DateTime @default(now())
+
+  labOrder LabOrder @relation(fields: [labOrderId], references: [id], onDelete: Cascade)
+
+  @@index([labOrderId])
+  @@map("lab_results")
+}
+
+model LabReport {
+  id         String @id @default(uuid()) @db.Uuid
+  labOrderId String @db.Uuid
+
+  version     Int      @default(1)
+  storageKey  String   @unique
+  mimeType    String
+  sizeBytes   Int
+  summary     String?
+  uploadedById String? @db.Uuid
+  uploadedAt  DateTime @default(now())
+  reviewedById String? @db.Uuid
+  reviewedAt  DateTime?
+
+  labOrder LabOrder @relation(fields: [labOrderId], references: [id], onDelete: Cascade)
+
+  @@unique([labOrderId, version])
+  @@map("lab_reports")
+}

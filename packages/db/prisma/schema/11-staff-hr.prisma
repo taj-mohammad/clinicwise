@@ -1,0 +1,380 @@
+enum StaffStatus {
+  ACTIVE
+  INACTIVE
+  ON_LEAVE
+  SUSPENDED
+  TERMINATED
+}
+
+enum SalaryType {
+  MONTHLY
+  DAILY
+  HOURLY
+  CONTRACT
+}
+
+model Staff {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+
+  /** Immutable, e.g. CLX-ST-000001 */
+  code        String @unique
+  designation String
+  department  String?
+
+  dateOfBirth  DateTime? @db.Date
+  joiningDate  DateTime  @db.Date
+  exitDate     DateTime? @db.Date
+  addressLine1 String?
+  city         String?
+  state        String?
+  pincode      String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+
+  salaryType SalaryType @default(MONTHLY)
+  /** Encrypted at rest by the application layer. */
+  bankDetails Json?
+
+  status StaffStatus @default(ACTIVE)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  facilityAccess   StaffFacilityAccess[]
+  documents        StaffDocument[]
+  attendance       Attendance[]
+  leaveRequests    LeaveRequest[]
+  overtime         Overtime[]
+  salaryStructures SalaryStructure[]
+  salaryRevisions  SalaryRevision[]
+  salaryAdvances   SalaryAdvance[]
+  payrollItems     PayrollItem[]
+  payslips         Payslip[]
+
+  @@index([status])
+  @@map("staff")
+}
+
+model StaffFacilityAccess {
+  id         String  @id @default(uuid()) @db.Uuid
+  staffId    String  @db.Uuid
+  clinicId   String  @db.Uuid
+  locationId String? @db.Uuid
+  isPrimary  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, clinicId, locationId])
+  @@map("staff_facility_access")
+}
+
+model StaffDocument {
+  id      String @id @default(uuid()) @db.Uuid
+  staffId String @db.Uuid
+
+  kind       String
+  title      String
+  storageKey String @unique
+  mimeType   String
+  sizeBytes  Int
+  expiresAt  DateTime?
+
+  uploadedAt DateTime @default(now())
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([staffId])
+  @@map("staff_documents")
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  HALF_DAY
+  LEAVE
+  HOLIDAY
+  WEEK_OFF
+  ON_DUTY
+  MISSING_CHECKOUT
+}
+
+enum AttendanceMethod {
+  QR
+  MANUAL
+  BIOMETRIC
+  CORRECTION
+}
+
+model Attendance {
+  id         String @id @default(uuid()) @db.Uuid
+  staffId    String @db.Uuid
+  clinicId   String @db.Uuid
+  locationId String @db.Uuid
+
+  date        DateTime @db.Date
+  checkInAt   DateTime?
+  checkOutAt  DateTime?
+  workedMinutes Int?
+  status      AttendanceStatus @default(ABSENT)
+  method      AttendanceMethod @default(QR)
+
+  /** Set when a manager edits the record; the original values stay in events. */
+  correctedById String?  @db.Uuid
+  correctedAt   DateTime?
+  correctionReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  staff  Staff             @relation(fields: [staffId], references: [id])
+  events AttendanceEvent[]
+
+  @@unique([staffId, date])
+  @@index([clinicId, date])
+  @@index([locationId, date])
+  @@map("attendance")
+}
+
+model AttendanceEvent {
+  id           String @id @default(uuid()) @db.Uuid
+  attendanceId String @db.Uuid
+
+  /** CHECK_IN | CHECK_OUT | CORRECTION */
+  type      String
+  occurredAt DateTime @default(now())
+  method    AttendanceMethod
+  deviceInfo String?
+  ipAddress String?
+  latitude  Decimal? @db.Decimal(10, 7)
+  longitude Decimal? @db.Decimal(10, 7)
+  /** Distance from the location in metres when geo validation ran. */
+  distanceM Int?
+  actorId   String?  @db.Uuid
+  metadata  Json?
+
+  attendance Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+
+  @@index([attendanceId, occurredAt])
+  @@map("attendance_events")
+}
+
+enum LeaveType {
+  CASUAL
+  SICK
+  EARNED
+  UNPAID
+  MATERNITY
+  PATERNITY
+  COMP_OFF
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CHANGES_REQUESTED
+  CANCELLED
+}
+
+model LeaveRequest {
+  id      String @id @default(uuid()) @db.Uuid
+  staffId String @db.Uuid
+
+  type      LeaveType
+  startDate DateTime  @db.Date
+  endDate   DateTime  @db.Date
+  halfDay   Boolean   @default(false)
+  days      Decimal   @db.Decimal(4, 1)
+  reason    String
+  attachmentKey String?
+
+  status       LeaveStatus @default(PENDING)
+  decidedById  String?     @db.Uuid
+  decidedAt    DateTime?
+  decisionNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  staff Staff @relation(fields: [staffId], references: [id])
+
+  @@index([staffId, startDate])
+  @@index([status])
+  @@map("leave_requests")
+}
+
+model Holiday {
+  id       String   @id @default(uuid()) @db.Uuid
+  clinicId String?  @db.Uuid
+  date     DateTime @db.Date
+  name     String
+  isOptional Boolean @default(false)
+
+  @@unique([clinicId, date])
+  @@map("holidays")
+}
+
+model Overtime {
+  id      String   @id @default(uuid()) @db.Uuid
+  staffId String   @db.Uuid
+  date    DateTime @db.Date
+  hours   Decimal  @db.Decimal(4, 1)
+  rate    Decimal? @db.Decimal(10, 2)
+  approvedById String? @db.Uuid
+  approvedAt   DateTime?
+  note    String?
+
+  createdAt DateTime @default(now())
+
+  staff Staff @relation(fields: [staffId], references: [id])
+
+  @@index([staffId, date])
+  @@map("overtime")
+}
+
+model SalaryStructure {
+  id      String @id @default(uuid()) @db.Uuid
+  staffId String @db.Uuid
+
+  effectiveFrom DateTime @db.Date
+  base          Decimal  @db.Decimal(12, 2)
+  hra           Decimal  @db.Decimal(12, 2) @default(0)
+  allowances    Decimal  @db.Decimal(12, 2) @default(0)
+  deductions    Decimal  @db.Decimal(12, 2) @default(0)
+  components    Json?
+
+  createdAt DateTime @default(now())
+
+  staff Staff @relation(fields: [staffId], references: [id])
+
+  @@unique([staffId, effectiveFrom])
+  @@map("salary_structures")
+}
+
+model SalaryRevision {
+  id      String @id @default(uuid()) @db.Uuid
+  staffId String @db.Uuid
+
+  effectiveFrom DateTime @db.Date
+  previousCtc   Decimal  @db.Decimal(12, 2)
+  newCtc        Decimal  @db.Decimal(12, 2)
+  reason        String?
+  approvedById  String?  @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  staff Staff @relation(fields: [staffId], references: [id])
+
+  @@index([staffId, effectiveFrom])
+  @@map("salary_revisions")
+}
+
+model SalaryAdvance {
+  id      String  @id @default(uuid()) @db.Uuid
+  staffId String  @db.Uuid
+  amount  Decimal @db.Decimal(12, 2)
+  reason  String?
+  /** Number of payroll cycles the advance is recovered over. */
+  instalments Int   @default(1)
+  recovered   Decimal @db.Decimal(12, 2) @default(0)
+  status      String  @default("PENDING")
+  approvedById String? @db.Uuid
+  approvedAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  staff Staff @relation(fields: [staffId], references: [id])
+
+  @@index([staffId])
+  @@map("salary_advances")
+}
+
+enum PayrollStatus {
+  DRAFT
+  CALCULATED
+  IN_REVIEW
+  APPROVED
+  PROCESSED
+  PAID
+}
+
+model Payroll {
+  id       String @id @default(uuid()) @db.Uuid
+  clinicId String @db.Uuid
+
+  periodYear  Int
+  periodMonth Int
+  status      PayrollStatus @default(DRAFT)
+
+  grossTotal Decimal @db.Decimal(14, 2) @default(0)
+  netTotal   Decimal @db.Decimal(14, 2) @default(0)
+
+  calculatedAt DateTime?
+  approvedById String?   @db.Uuid
+  approvedAt   DateTime?
+  processedAt  DateTime?
+  paidAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items    PayrollItem[]
+  payslips Payslip[]
+
+  @@unique([clinicId, periodYear, periodMonth])
+  @@map("payroll")
+}
+
+model PayrollItem {
+  id        String @id @default(uuid()) @db.Uuid
+  payrollId String @db.Uuid
+  staffId   String @db.Uuid
+
+  base            Decimal @db.Decimal(12, 2) @default(0)
+  allowances      Decimal @db.Decimal(12, 2) @default(0)
+  incentive       Decimal @db.Decimal(12, 2) @default(0)
+  overtimeAmount  Decimal @db.Decimal(12, 2) @default(0)
+  bonus           Decimal @db.Decimal(12, 2) @default(0)
+  deductions      Decimal @db.Decimal(12, 2) @default(0)
+  leaveAdjustment Decimal @db.Decimal(12, 2) @default(0)
+  advanceRecovery Decimal @db.Decimal(12, 2) @default(0)
+  otherAdjustment Decimal @db.Decimal(12, 2) @default(0)
+  gross           Decimal @db.Decimal(12, 2) @default(0)
+  net             Decimal @db.Decimal(12, 2) @default(0)
+
+  presentDays Decimal @db.Decimal(4, 1) @default(0)
+  leaveDays   Decimal @db.Decimal(4, 1) @default(0)
+  breakdown   Json?
+
+  payroll Payroll @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  staff   Staff   @relation(fields: [staffId], references: [id])
+
+  @@unique([payrollId, staffId])
+  @@map("payroll_items")
+}
+
+/** Issued payslips are immutable; a correction issues a new one. */
+model Payslip {
+  id        String @id @default(uuid()) @db.Uuid
+  payrollId String @db.Uuid
+  staffId   String @db.Uuid
+
+  number     String   @unique
+  snapshot   Json
+  pdfKey     String?
+  issuedAt   DateTime @default(now())
+  supersededById String? @db.Uuid
+
+  payroll Payroll @relation(fields: [payrollId], references: [id])
+  staff   Staff   @relation(fields: [staffId], references: [id])
+
+  @@index([staffId, issuedAt])
+  @@map("payslips")
+}

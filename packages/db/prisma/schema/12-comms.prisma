@@ -1,0 +1,284 @@
+enum ConversationType {
+  DOCTOR_PATIENT
+  STAFF_INTERNAL
+  PARTNER
+}
+
+model Conversation {
+  id       String           @id @default(uuid()) @db.Uuid
+  type     ConversationType @default(DOCTOR_PATIENT)
+  clinicId String?          @db.Uuid
+  /** Present for DOCTOR_PATIENT threads; the treating relationship authorises access. */
+  doctorId  String?         @db.Uuid
+  patientId String?         @db.Uuid
+  subject   String?
+
+  lastMessageAt DateTime?
+  isArchived    Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  doctor  Doctor?  @relation(fields: [doctorId], references: [id])
+  patient Patient? @relation(fields: [patientId], references: [id])
+
+  @@unique([doctorId, patientId])
+  @@index([clinicId, lastMessageAt])
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id             String  @id @default(uuid()) @db.Uuid
+  conversationId String  @db.Uuid
+  userId         String  @db.Uuid
+  role           String
+  isPinned       Boolean @default(false)
+  mutedUntil     DateTime?
+  lastReadAt     DateTime?
+
+  joinedAt DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@map("conversation_participants")
+}
+
+enum MessageKind {
+  TEXT
+  IMAGE
+  PDF
+  PRESCRIPTION
+  LAB_REPORT
+  DOCUMENT
+  SYSTEM
+}
+
+model Message {
+  id             String @id @default(uuid()) @db.Uuid
+  conversationId String @db.Uuid
+  senderId       String @db.Uuid
+
+  kind MessageKind @default(TEXT)
+  body String?
+  /** Lets a doctor file a message against the consultation it belongs to. */
+  consultationId String? @db.Uuid
+
+  deliveredAt DateTime?
+  editedAt    DateTime?
+  deletedAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  conversation Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  attachments  MessageAttachment[]
+  receipts     MessageReadReceipt[]
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+model MessageAttachment {
+  id        String @id @default(uuid()) @db.Uuid
+  messageId String @db.Uuid
+
+  storageKey       String @unique
+  originalFilename String
+  mimeType         String
+  sizeBytes        Int
+
+  createdAt DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("message_attachments")
+}
+
+model MessageReadReceipt {
+  messageId String   @db.Uuid
+  userId    String   @db.Uuid
+  readAt    DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, userId])
+  @@map("message_read_receipts")
+}
+
+enum NotificationChannel {
+  IN_APP
+  PUSH
+  WHATSAPP
+  SMS
+  EMAIL
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+  READ
+}
+
+model Notification {
+  id       String  @id @default(uuid()) @db.Uuid
+  userId   String  @db.Uuid
+  clinicId String? @db.Uuid
+
+  type     String
+  title    String
+  body     String
+  /** Deep link such as cliniqx://appointment/{id} */
+  deepLink String?
+  data     Json?
+
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user       User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries NotificationDelivery[]
+
+  @@index([userId, readAt, createdAt])
+  @@map("notifications")
+}
+
+model NotificationDelivery {
+  id             String              @id @default(uuid()) @db.Uuid
+  notificationId String              @db.Uuid
+  channel        NotificationChannel
+  status         NotificationStatus  @default(QUEUED)
+
+  provider        String?
+  providerMessageId String?
+  attempts        Int      @default(0)
+  lastError       String?
+  sentAt          DateTime?
+  deliveredAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([notificationId])
+  @@index([status, channel])
+  @@map("notification_deliveries")
+}
+
+model NotificationPreference {
+  id      String              @id @default(uuid()) @db.Uuid
+  userId  String              @db.Uuid
+  type    String
+  channel NotificationChannel
+  enabled Boolean             @default(true)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, channel])
+  @@map("notification_preferences")
+}
+
+enum CommunicationChannel {
+  CALL
+  WHATSAPP
+  SMS
+  EMAIL
+  IN_PERSON
+  NOTE
+}
+
+model CommunicationLog {
+  id        String  @id @default(uuid()) @db.Uuid
+  clinicId  String? @db.Uuid
+  patientId String? @db.Uuid
+  staffUserId String? @db.Uuid
+
+  channel CommunicationChannel
+  purpose String?
+  summary String?
+
+  createdAt DateTime @default(now())
+
+  @@index([patientId, createdAt])
+  @@map("communication_logs")
+}
+
+enum CallOutcome {
+  CONNECTED
+  NO_ANSWER
+  BUSY
+  WRONG_NUMBER
+  CALL_BACK_REQUESTED
+  COMPLETED
+  OTHER
+}
+
+model CallLog {
+  id        String @id @default(uuid()) @db.Uuid
+  clinicId  String? @db.Uuid
+  patientId String  @db.Uuid
+  staffUserId String? @db.Uuid
+
+  purpose  String?
+  outcome  CallOutcome
+  notes    String?
+  durationSeconds Int?
+  calledAt DateTime    @default(now())
+
+  patient   Patient    @relation(fields: [patientId], references: [id])
+  followUps FollowUp[]
+
+  @@index([patientId, calledAt])
+  @@map("call_logs")
+}
+
+enum FollowUpStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+model FollowUp {
+  id        String @id @default(uuid()) @db.Uuid
+  clinicId  String? @db.Uuid
+  patientId String  @db.Uuid
+  callLogId String? @db.Uuid
+
+  dueAt       DateTime
+  reason      String
+  status      FollowUpStatus @default(OPEN)
+  assignedToId String?       @db.Uuid
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  patient    Patient            @relation(fields: [patientId], references: [id])
+  callLog    CallLog?           @relation(fields: [callLogId], references: [id])
+  activities FollowUpActivity[]
+
+  @@index([patientId, dueAt])
+  @@index([status, dueAt])
+  @@map("followups")
+}
+
+model FollowUpActivity {
+  id         String   @id @default(uuid()) @db.Uuid
+  followUpId String   @db.Uuid
+  actorId    String?  @db.Uuid
+  action     String
+  note       String?
+  createdAt  DateTime @default(now())
+
+  followUp FollowUp @relation(fields: [followUpId], references: [id], onDelete: Cascade)
+
+  @@index([followUpId, createdAt])
+  @@map("followup_activities")
+}

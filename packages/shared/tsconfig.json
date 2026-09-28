@@ -1,0 +1,5 @@
+{
+  "extends": "@cliniqx/config/tsconfig.base.json",
+  "compilerOptions": { "noEmit": true, "module": "CommonJS", "moduleResolution": "Node" },
+  "include": ["src"]
+}
